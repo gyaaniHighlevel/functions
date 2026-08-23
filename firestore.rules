@@ -1,0 +1,50 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isOwner()  { return signedIn() && request.auth.uid == resource.data.ownerUid; }
+    function creatingOwn() { return signedIn() && request.auth.uid == request.resource.data.ownerUid; }
+
+    match /users/{uid} {
+      allow read, create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    match /hlConnections/{uid} { allow read, write: if false; }
+    match /oauthStates/{s}     { allow read, write: if false; }
+    match /rateLimits/{uid}    { allow read, write: if false; }
+    match /cancellations/{g}   { allow read, write: if false; }
+
+    match /projects/{pid} {
+      allow create: if creatingOwn()
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.status == 'active';
+      allow read: if isOwner();
+      allow update: if isOwner()
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['headSnapshotId', 'activeGenerationId']);
+      allow delete: if false;
+
+      match /files/{fid} {
+        allow read: if isOwner();
+        allow update: if isOwner()
+          && request.resource.data.content.size() <= 100000
+          && request.resource.data.path == resource.data.path
+          && request.resource.data.updatedBy == 'user';
+        allow create, delete: if false;
+      }
+      match /blobs/{sha}     { allow read: if isOwner(); allow write: if false; }
+      match /snapshots/{sid} { allow read: if isOwner(); allow write: if false; }
+      match /messages/{mid}  {
+        allow read: if isOwner();
+        allow create: if creatingOwn() && request.resource.data.role == 'user'
+          && request.resource.data.content.size() <= 4000;
+        allow update, delete: if false;
+      }
+      match /generations/{gid} { allow read: if isOwner(); allow write: if false; }
+    }
+  }
+}
