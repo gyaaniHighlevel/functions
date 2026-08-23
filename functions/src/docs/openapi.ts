@@ -11,6 +11,10 @@ import {
   updateProjectSchema,
 } from "../schemas/project.schema";
 import {
+  exchangeCodeSchema,
+  refreshAccessTokenSchema,
+} from "../schemas/oauth.schema";
+import {
   listSnapshotsQuerySchema,
   saveSnapshotBodySchema,
 } from "../schemas/snapshot.schema";
@@ -89,6 +93,22 @@ const userProfileSchema = z.object({
   }),
 });
 
+const hlConnectionStatusSchema = z.object({
+  connected: z.boolean(),
+  locationId: z.string().optional(),
+  locationName: z.string().optional(),
+  companyId: z.string().optional(),
+  scopes: z.array(z.string()).optional(),
+  expiresAt: z.number().optional()
+    .openapi({description: "Access token expiry, epoch ms."}),
+});
+
+const hlFreshTokenSchema = z.object({
+  accessToken: z.string(),
+  expiresAt: z.number().openapi({description: "Epoch ms."}),
+  locationId: z.string(),
+});
+
 const projectParams = z.object({projectId: projectIdSchema});
 const snapshotParams = z.object({
   projectId: projectIdSchema,
@@ -164,6 +184,61 @@ export function buildOpenApiDocument():
       200: ok("The caller's profile.", userProfile),
       ...authErrors,
       404: err("Profile not found. Create it first."),
+    },
+  });
+
+  const hlStatus = registry.register(
+    "HlConnectionStatus", hlConnectionStatusSchema);
+
+  registry.registerPath({
+    method: "post",
+    path: "/oauth/hl/connect",
+    tags: ["HighLevel OAuth"],
+    summary: "Exchange a HighLevel authorization code for a connection",
+    description: "The frontend completes the marketplace OAuth redirect, " +
+      "grabs ?code=... and posts it here. The backend exchanges it with " +
+      "client_id/client_secret, encrypts both tokens (AES-256-GCM, AAD = " +
+      "uid), full-replaces hlConnections/{uid}, and mirrors users/{uid}.hl.",
+    request: {body: body(exchangeCodeSchema)},
+    responses: {
+      201: ok("Connected. Tokens are stored server-side, never returned.",
+        hlStatus),
+      ...authErrors,
+      422: err("Invalid input, missing redirect URI, or agency-level " +
+        "install (a location install is required)."),
+      502: err("HighLevel rejected the code exchange."),
+    },
+  });
+
+  registry.registerPath({
+    method: "post",
+    path: "/oauth/hl/token",
+    tags: ["HighLevel OAuth"],
+    summary: "Get a fresh HighLevel access token for the caller",
+    description: "Lazy single-flight refresh: returns the stored token " +
+      "while it is still valid, otherwise refreshes it (HighLevel rotates " +
+      "refresh tokens; the transaction prevents a refresh stampede). " +
+      "userId, when passed, must match the caller. force=true always " +
+      "refreshes.",
+    request: {body: body(refreshAccessTokenSchema)},
+    responses: {
+      200: ok("A valid access token.", hlFreshTokenSchema),
+      ...authErrors,
+      403: err("userId does not match the caller."),
+      409: err("HighLevel is not connected (or the connection was " +
+        "revoked). Connect again."),
+      502: err("HighLevel token endpoint failed."),
+    },
+  });
+
+  registry.registerPath({
+    method: "get",
+    path: "/oauth/hl/status",
+    tags: ["HighLevel OAuth"],
+    summary: "Get the caller's HighLevel connection status",
+    responses: {
+      200: ok("connected=false when never connected or revoked.", hlStatus),
+      ...authErrors,
     },
   });
 

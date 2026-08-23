@@ -54,7 +54,7 @@ Deployed functions: `api` (Express REST app), seven callables (`createUserProfil
 http://127.0.0.1:5001/highlevel-assignment-20de2/us-central1/api
 ```
 
-Routes: `/healthz`, `/users/*`, `/projects/*` (including nested `/files` and `/snapshots`).
+Routes: `/healthz`, `/users/*`, `/projects/*` (including nested `/files` and `/snapshots`), `/oauth/hl/*` (`POST /connect`, `POST /token`, `GET /status` — HighLevel OAuth; requires the secrets below).
 
 **Smoke test a callable:**
 
@@ -109,11 +109,124 @@ Firestore rules tests require the Firestore emulator to be running. HighLevel ca
 
 ## Secrets
 
-Runtime secrets (`ANTHROPIC_API_KEY`, `HL_CLIENT_ID`, `HL_CLIENT_SECRET`, `TOKEN_ENC_KEY`) are managed with Secret Manager and bound per-function with `defineSecret` — never put them in `functions:config` or source:
+Runtime secrets are bound per-function with `defineSecret` (see `functions/src/config/secrets.ts`) — never put them in `functions:config` or source.
+
+| Name | Where to get the value | Used by |
+| --- | --- | --- |
+| `HL_CLIENT_ID` | HighLevel marketplace → your app → Settings → Client Keys | `api` (`/oauth/hl/*`) |
+| `HL_CLIENT_SECRET` | Same place as the client id | `api` (`/oauth/hl/*`) |
+| `TOKEN_ENC_KEY` | Generate: `openssl rand -base64 32` (32 random bytes, base64) | `api` — encrypts HL tokens at rest |
+| `ANTHROPIC_API_KEY` | Anthropic console (dev key) | `generate` (once built) |
+
+### Local (emulator)
+
+The emulator reads secrets from `functions/.secret.local` and plain env vars from `functions/.env.local` — both are **gitignored; never commit them**. Create them like this:
 
 ```bash
-npx firebase functions:secrets:set ANTHROPIC_API_KEY
+# functions/.secret.local
+HL_CLIENT_ID=<your marketplace app client id>
+HL_CLIENT_SECRET=<your marketplace app client secret>
+TOKEN_ENC_KEY=<output of: openssl rand -base64 32>
 ```
+
+```bash
+# functions/.env.local
+HL_REDIRECT_URI=http://localhost:5173/oauth/callback
+```
+
+`HL_REDIRECT_URI` is not a secret — it's the fallback redirect URI for the code exchange and must byte-match a redirect URL registered in the marketplace app (the frontend can also pass `redirectUri` per request). Restart the emulator after changing either file.
+
+### Production
+
+Store each secret in Secret Manager (prompts for the value, then redeploy the functions that use it):
+
+```bash
+npx firebase functions:secrets:set HL_CLIENT_ID
+npx firebase functions:secrets:set HL_CLIENT_SECRET
+npx firebase functions:secrets:set TOKEN_ENC_KEY
+npx firebase functions:secrets:set ANTHROPIC_API_KEY
+npm run deploy:functions
+```
+
+For `HL_REDIRECT_URI` in production, put it in `functions/.env` (non-secret env files are deployed) or have the frontend always send `redirectUri` in the `/oauth/hl/connect` body.
+
+> Rotating `TOKEN_ENC_KEY` invalidates every stored HighLevel connection — existing token envelopes stop decrypting and users must reconnect (by design, spec §4.2).
+
+## Deploying for the first time
+
+Complete walkthrough for a fresh machine and a fresh Firebase/HighLevel setup, in order.
+
+### 1. Create the HighLevel marketplace app (client id + secret)
+
+This is where `HL_CLIENT_ID` / `HL_CLIENT_SECRET` come from.
+
+1. Sign up for a **developer account** at [marketplace.gohighlevel.com](https://marketplace.gohighlevel.com/) (separate from a normal agency login).
+2. **My Apps → Create App.** Pick a name; for distribution choose **Sub-Account** (a.k.a. Location) — the backend requires location-level installs and rejects agency-level ones. "Private" app type is fine while developing.
+3. **Settings → Scopes** — enable exactly the working set from the spec:
+
+   ```
+   contacts.readonly contacts.write conversations.readonly
+   conversations/message.readonly conversations/message.write
+   calendars.readonly calendars/events.readonly locations.readonly
+   ```
+
+4. **Settings → Redirect URLs** — add every URL the OAuth flow may return to, one per environment. They must **byte-match** what the backend sends (`HL_REDIRECT_URI` or the request's `redirectUri`):
+
+   - `http://localhost:5173/oauth/callback` (local frontend dev)
+   - `https://genesis-crm-app.web.app/oauth/callback` (production)
+
+5. **Settings → Client Keys → Add** — this generates the **Client ID** and **Client Secret**. Copy the secret immediately; it is shown only once. These are the values for the secrets in the section above.
+6. **Webhook URL** — leave it empty. This backend doesn't consume HL webhooks; OAuth uses redirect URLs, not webhooks.
+
+### 2. Firebase project prerequisites (console, one-time)
+
+- Upgrade the project to the **Blaze (pay-as-you-go) plan** — gen-2 functions and Secret Manager won't deploy on Spark.
+- **Authentication → Sign-in method** — enable **Email/Password** (production auth is separate from the emulator).
+- CLI login: `npx firebase login` (from the repo root, so the pinned CLI is used).
+
+### 3. Configure secrets and env
+
+- Set the three production secrets (see the [Secrets](#secrets) section): `HL_CLIENT_ID`, `HL_CLIENT_SECRET`, `TOKEN_ENC_KEY`.
+- Create `functions/.env` (must be inside `functions/`, not the repo root):
+
+  ```bash
+  # functions/.env
+  HL_REDIRECT_URI=https://genesis-crm-app.web.app/oauth/callback
+  ```
+
+### 4. Build the frontend
+
+```bash
+cd ../frontend && npm run build && cd -
+```
+
+Hosting deploys a copy of `../frontend/dist` (a predeploy hook in `firebase.json` copies it to `hosting/dist`, since the Firebase CLI refuses `public` paths outside the project directory). Rebuild the frontend before any deploy that should ship UI changes.
+
+### 5. Deploy
+
+```bash
+npm run deploy:firestore                          # rules + indexes first
+npx firebase deploy --only functions,hosting      # functions (lint+build predeploy) + site
+```
+
+### 6. First-deploy errors you should expect (both are normal)
+
+- **"Failed to verify the project has the correct IAM bindings"** — the CLI couldn't grant roles to freshly created service agents. If you own the project, wait 2–3 minutes and retry; if it persists, grant manually in [IAM](https://console.cloud.google.com/iam-admin/iam): `service-<project-number>@gcp-sa-pubsub.iam.gserviceaccount.com` → *Service Account Token Creator*; `<project-number>-compute@developer.gserviceaccount.com` → *Cloud Run Invoker* + *Eventarc Event Receiver*.
+- **`onProjectCreated` fails with "Permission denied while using the Eventarc Service Agent"** — first-time Eventarc setup hasn't propagated yet. Wait a few minutes, then:
+
+  ```bash
+  npx firebase deploy --only functions:onProjectCreated
+  ```
+
+- The CLI also asks once about a **container image cleanup policy** — accept (e.g. 1 day); it just prunes old build images.
+
+### 7. Verify
+
+```bash
+curl https://us-central1-<project-id>.cloudfunctions.net/api/healthz   # → {"ok":true}
+```
+
+Open the hosting URL (e.g. `https://genesis-crm-app.web.app`), sign up, and run the HighLevel connect flow end-to-end: the frontend redirects to the marketplace `chooselocation` page, HL redirects back with `?code=`, and the frontend posts it to `POST /oauth/hl/connect`.
 
 ## Notes & gotchas
 

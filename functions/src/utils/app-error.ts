@@ -43,6 +43,11 @@ export class AppError extends Error {
   static notFound = (msg: string) => new AppError(404, "NOT_FOUND", msg);
   static validation = (msg: string) =>
     new AppError(422, "VALIDATION_FAILED", msg);
+  static hlNotConnected = (
+    msg = "HighLevel is not connected. Connect your account first.") =>
+    new AppError(409, "HL_NOT_CONNECTED", msg);
+  static hlUpstream = (msg: string) =>
+    new AppError(502, "HL_UPSTREAM_ERROR", msg);
 }
 
 const CALLABLE_CODE_BY_STATUS: Record<number, FunctionsErrorCode> = {

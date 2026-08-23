@@ -1,17 +1,7 @@
 import {Timestamp} from "firebase-admin/firestore";
 import {FilePath} from "./project.model";
 
-/** hlConnections/{uid} — SERVER-ONLY (INV-2). Rules deny all client access. */
-export interface HlConnectionDoc {
-  accessTokenEnc: string;
-  refreshTokenEnc: string;
-  locationId: string;
-  companyId: string;
-  scopes: string[];
-  expiresAt: number;
-  status: "connected" | "revoked";
-  updatedAt: Timestamp;
-}
+// hlConnections/{uid} lives in hl-connection.model.ts (it has a typed ref).
 
 /** oauthStates/{state} — server-only, single-use, TTL on expireAt. */
 export interface OAuthStateDoc {

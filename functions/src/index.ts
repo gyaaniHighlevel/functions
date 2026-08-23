@@ -1,8 +1,14 @@
 import "./config/firebase";
 import {onRequest} from "firebase-functions/v2/https";
 import {app} from "./app";
+import {
+  HL_CLIENT_ID,
+  HL_CLIENT_SECRET,
+  TOKEN_ENC_KEY,
+} from "./config/secrets";
 
-export const api = onRequest(app);
+export const api = onRequest(
+  {secrets: [HL_CLIENT_ID, HL_CLIENT_SECRET, TOKEN_ENC_KEY]}, app);
 
 export {createUserProfile} from "./callables/user.callables";
 export {
