@@ -15,6 +15,18 @@ import {
   refreshAccessTokenSchema,
 } from "../schemas/oauth.schema";
 import {
+  availabilityQuerySchema,
+  createContactSchema,
+  hlIdSchema,
+  listAppointmentsQuerySchema,
+  listContactsQuerySchema,
+  listConversationsQuerySchema,
+  listMessagesQuerySchema,
+  searchContactsQuerySchema,
+  sendMessageSchema,
+  updateContactSchema,
+} from "../schemas/proxy.schema";
+import {
   listSnapshotsQuerySchema,
   saveSnapshotBodySchema,
 } from "../schemas/snapshot.schema";
@@ -107,6 +119,92 @@ const hlFreshTokenSchema = z.object({
   accessToken: z.string(),
   expiresAt: z.number().openapi({description: "Epoch ms."}),
   locationId: z.string(),
+});
+
+// Proxy response shapes: HL envelopes normalized to the SDK contract,
+// unpromised upstream fields stripped (hl-proxy.service.ts).
+const hlContactSchema = z.object({
+  id: z.string(),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  name: z.string().optional(),
+  email: z.string().optional(),
+  phone: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  source: z.string().optional(),
+  companyName: z.string().optional(),
+  address1: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  country: z.string().optional(),
+  postalCode: z.string().optional(),
+  website: z.string().optional(),
+  timezone: z.string().optional(),
+  dnd: z.boolean().optional(),
+  assignedTo: z.string().optional(),
+  dateAdded: z.string().optional(),
+  dateUpdated: z.string().optional(),
+});
+
+const hlConversationSchema = z.object({
+  id: z.string(),
+  contactId: z.string().optional(),
+  fullName: z.string().optional(),
+  contactName: z.string().optional(),
+  email: z.string().optional(),
+  phone: z.string().optional(),
+  lastMessageBody: z.string().optional(),
+  lastMessageType: z.string().optional(),
+  type: z.string().optional(),
+  unreadCount: z.number().optional(),
+});
+
+const hlMessageSchema = z.object({
+  id: z.string(),
+  conversationId: z.string().optional(),
+  contactId: z.string().optional(),
+  type: z.number().optional(),
+  messageType: z.string().optional(),
+  direction: z.string().optional(),
+  status: z.string().optional(),
+  body: z.string().optional(),
+  contentType: z.string().optional(),
+  attachments: z.array(z.string()).optional(),
+  dateAdded: z.string().optional(),
+});
+
+const hlCalendarSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  isActive: z.boolean().optional(),
+  calendarType: z.string().optional(),
+  groupId: z.string().optional(),
+});
+
+const hlEventSchema = z.object({
+  id: z.string(),
+  title: z.string().optional(),
+  calendarId: z.string().optional(),
+  contactId: z.string().optional(),
+  appointmentStatus: z.string().optional(),
+  assignedUserId: z.string().optional(),
+  address: z.string().optional(),
+  notes: z.string().optional(),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+});
+
+const hlAvailabilitySchema = z.object({
+  availability: z.record(
+    z.string().openapi({description: "Date key, YYYY-MM-DD."}),
+    z.object({slots: z.array(z.string())})),
+});
+
+const hlSendResultSchema = z.object({
+  conversationId: z.string().optional(),
+  messageId: z.string().optional(),
+  status: z.string().optional(),
 });
 
 const projectParams = z.object({projectId: projectIdSchema});
@@ -239,6 +337,174 @@ export function buildOpenApiDocument():
     responses: {
       200: ok("connected=false when never connected or revoked.", hlStatus),
       ...authErrors,
+    },
+  });
+
+  const proxyErrors = {
+    ...authErrors,
+    409: err("HighLevel is not connected (or the connection was revoked)."),
+    422: err("Invalid parameters, or HighLevel rejected the request."),
+    429: err("HighLevel rate limit (HL_RATE_LIMITED), forwarded with " +
+      "Retry-After when HighLevel provides it."),
+    502: err("HighLevel upstream error or timeout."),
+  };
+
+  registry.registerPath({
+    method: "get",
+    path: "/hl/contacts",
+    tags: ["HighLevel Proxy"],
+    summary: "List contacts (SDK: hl.contacts.list)",
+    description: "locationId is injected server-side from the caller's " +
+      "connection on every proxy route — generated code can never target " +
+      "another location. Pages by number (HL API v3 has no list " +
+      "endpoint; this is an unfiltered search).",
+    request: {query: listContactsQuerySchema},
+    responses: {
+      200: ok("Contacts in the connected location.", z.object({
+        contacts: z.array(hlContactSchema),
+        total: z.number(),
+      })),
+      ...proxyErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: "get",
+    path: "/hl/contacts/search",
+    tags: ["HighLevel Proxy"],
+    summary: "Search contacts (SDK: hl.contacts.search)",
+    request: {query: searchContactsQuerySchema},
+    responses: {
+      200: ok("Matching contacts.", z.object({
+        contacts: z.array(hlContactSchema),
+        total: z.number(),
+      })),
+      ...proxyErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: "post",
+    path: "/hl/contacts",
+    tags: ["HighLevel Proxy"],
+    summary: "Create a contact (SDK: hl.contacts.create)",
+    request: {body: body(createContactSchema)},
+    responses: {
+      201: ok("The created contact.",
+        z.object({contact: hlContactSchema})),
+      ...proxyErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: "put",
+    path: "/hl/contacts/{contactId}",
+    tags: ["HighLevel Proxy"],
+    summary: "Update a contact (SDK: hl.contacts.update)",
+    request: {
+      params: z.object({contactId: hlIdSchema}),
+      body: body(updateContactSchema),
+    },
+    responses: {
+      200: ok("The updated contact.",
+        z.object({contact: hlContactSchema})),
+      404: err("Contact not found."),
+      ...proxyErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: "get",
+    path: "/hl/conversations",
+    tags: ["HighLevel Proxy"],
+    summary: "List conversations (SDK: hl.conversations.list)",
+    request: {query: listConversationsQuerySchema},
+    responses: {
+      200: ok("Recent conversations.", z.object({
+        conversations: z.array(hlConversationSchema),
+        total: z.number(),
+      })),
+      ...proxyErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: "get",
+    path: "/hl/conversations/{conversationId}/messages",
+    tags: ["HighLevel Proxy"],
+    summary: "Get messages (SDK: hl.conversations.messages)",
+    request: {
+      params: z.object({conversationId: hlIdSchema}),
+      query: listMessagesQuerySchema,
+    },
+    responses: {
+      200: ok("Messages, newest first. Pass lastMessageId to page.",
+        z.object({
+          messages: z.array(hlMessageSchema),
+          lastMessageId: z.string().nullable(),
+          nextPage: z.boolean(),
+        })),
+      404: err("Conversation not found."),
+      ...proxyErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: "post",
+    path: "/hl/conversations/{conversationId}/messages",
+    tags: ["HighLevel Proxy"],
+    summary: "Send a message (SDK: hl.conversations.send)",
+    description: "The proxy resolves the conversation's contactId " +
+      "upstream, so the SDK contract stays conversation-scoped.",
+    request: {
+      params: z.object({conversationId: hlIdSchema}),
+      body: body(sendMessageSchema),
+    },
+    responses: {
+      201: ok("Message queued/sent.", hlSendResultSchema),
+      404: err("Conversation not found."),
+      ...proxyErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: "get",
+    path: "/hl/calendars",
+    tags: ["HighLevel Proxy"],
+    summary: "List calendars (SDK: hl.calendars.list)",
+    responses: {
+      200: ok("Calendars in the connected location.",
+        z.object({calendars: z.array(hlCalendarSchema)})),
+      ...proxyErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: "get",
+    path: "/hl/calendars/appointments",
+    tags: ["HighLevel Proxy"],
+    summary: "Get appointments (SDK: hl.calendars.appointments)",
+    request: {query: listAppointmentsQuerySchema},
+    responses: {
+      200: ok("Calendar events in the window.",
+        z.object({events: z.array(hlEventSchema)})),
+      ...proxyErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: "get",
+    path: "/hl/calendars/{calendarId}/availability",
+    tags: ["HighLevel Proxy"],
+    summary: "Get free slots (SDK: hl.calendars.availability)",
+    request: {
+      params: z.object({calendarId: hlIdSchema}),
+      query: availabilityQuerySchema,
+    },
+    responses: {
+      200: ok("Free slots keyed by date.", hlAvailabilitySchema),
+      404: err("Calendar not found."),
+      ...proxyErrors,
     },
   });
 

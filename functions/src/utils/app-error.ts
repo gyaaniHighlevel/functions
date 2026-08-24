@@ -48,6 +48,8 @@ export class AppError extends Error {
     new AppError(409, "HL_NOT_CONNECTED", msg);
   static hlUpstream = (msg: string) =>
     new AppError(502, "HL_UPSTREAM_ERROR", msg);
+  static hlRateLimited = (msg: string, retryAfter?: number) =>
+    new AppError(429, "HL_RATE_LIMITED", msg, retryAfter);
 }
 
 const CALLABLE_CODE_BY_STATUS: Record<number, FunctionsErrorCode> = {

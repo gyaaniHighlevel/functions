@@ -250,7 +250,7 @@ export async function getConnectionStatus(
   };
 }
 
-async function markRevoked(uid: string): Promise<void> {
+export async function markRevoked(uid: string): Promise<void> {
   try {
     const batch = db.batch();
     batch.set(hlConnectionRef(uid),

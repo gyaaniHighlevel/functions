@@ -5,6 +5,7 @@ import {errorHandler} from "./middleware/error-handler";
 import {requireAuth} from "./middleware/require-auth";
 import {oauthRoutes} from "./routes/oauth.routes";
 import {projectRoutes} from "./routes/project.routes";
+import {proxyRoutes} from "./routes/proxy.routes";
 import {userRoutes} from "./routes/user.routes";
 
 export const app = express();
@@ -19,6 +20,7 @@ app.get("/healthz", (_req, res) => {
 app.use("/docs", docsRoutes);
 
 app.use("/oauth/hl", requireAuth, oauthRoutes);
+app.use("/hl", requireAuth, proxyRoutes);
 app.use("/users", requireAuth, userRoutes);
 app.use("/projects", requireAuth, projectRoutes);
 

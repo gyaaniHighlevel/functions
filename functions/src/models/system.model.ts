@@ -10,14 +10,6 @@ export interface OAuthStateDoc {
   expireAt: Timestamp;
 }
 
-/** rateLimits/{uid} — server-only fixed-window counters. */
-export interface RateLimitDoc {
-  genWindowStart: number;
-  genCount: number;
-  proxyWindowStart: number;
-  proxyCount: number;
-}
-
 /** cancellations/{generationId} — cancel intent flag. */
 export interface CancellationDoc {
   uid: string;
