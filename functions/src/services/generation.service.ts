@@ -25,8 +25,7 @@ import {
   snapshotRef,
 } from "../models/snapshot.model";
 import {GenerationDoc} from "../models/system.model";
-import {generationRef} from "../models/generation.model";
-import {messageRef} from "../models/generation.model";
+import {generationRef, messageRef} from "../models/generation.model";
 import {SYSTEM_PROMPT} from "../templates/system-prompt";
 import {
   StreamingTagParser,
@@ -220,8 +219,12 @@ export async function runGeneration(
           for (const pe of parserEvents) {
             processParserEvent(
               pe, sse, staged, narration,
-              (n) => { narration = n; },
-              (err) => { validationError = err; },
+              (n) => {
+                narration = n;
+              },
+              (err) => {
+                validationError = err;
+              },
             );
             if (validationError) {
               abortController.abort();
@@ -238,8 +241,12 @@ export async function runGeneration(
         for (const pe of finalEvents) {
           processParserEvent(
             pe, sse, staged, narration,
-            (n) => { narration = n; },
-            (err) => { validationError = err; },
+            (n) => {
+              narration = n;
+            },
+            (err) => {
+              validationError = err;
+            },
           );
           if (validationError) break;
         }
@@ -273,11 +280,11 @@ export async function runGeneration(
 
     // 9. Handle failure
     if (validationError) {
-      const errorCode = validationError.startsWith("GENERATION_TIMEOUT")
-        ? "GENERATION_TIMEOUT"
-        : validationError.startsWith("LLM_STREAM_ERROR")
-          ? "LLM_STREAM_ERROR"
-          : "MALFORMED_OUTPUT";
+      const errorCode = validationError.startsWith("GENERATION_TIMEOUT") ?
+        "GENERATION_TIMEOUT" :
+        validationError.startsWith("LLM_STREAM_ERROR") ?
+          "LLM_STREAM_ERROR" :
+          "MALFORMED_OUTPUT";
 
       await failGeneration(
         projectId, generationId!, errorCode, validationError,
@@ -510,13 +517,13 @@ function mergeConsecutiveRoles(
     if (merged.length > 0 &&
         merged[merged.length - 1].role === msg.role) {
       const last = merged[merged.length - 1];
-      const lastContent = typeof last.content === "string"
-        ? last.content
-        : last.content.map((c) =>
+      const lastContent = typeof last.content === "string" ?
+        last.content :
+        last.content.map((c) =>
           "text" in c ? c.text : "").join("\n");
-      const newContent = typeof msg.content === "string"
-        ? msg.content
-        : (msg.content as Anthropic.TextBlockParam[]).map((c) =>
+      const newContent = typeof msg.content === "string" ?
+        msg.content :
+        (msg.content as Anthropic.TextBlockParam[]).map((c) =>
           "text" in c ? c.text : "").join("\n");
       merged[merged.length - 1] = {
         role: msg.role,

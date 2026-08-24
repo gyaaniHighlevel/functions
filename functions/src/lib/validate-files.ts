@@ -70,10 +70,10 @@ export function validateFile(
 
   // Gate 5: index.html — must have id="app", must not have <script
   if (path === "index.html") {
-    if (!content.includes('id="app"')) {
+    if (!content.includes("id=\"app\"")) {
       return {
         valid: false,
-        error: 'index.html must contain an element with id="app".',
+        error: "index.html must contain an element with id=\"app\".",
       };
     }
     if (/<script/i.test(content)) {
