@@ -42,5 +42,4 @@ export interface GenerationDoc {
   snapshotId: string | null;
   filesChanged: FilePath[];
   error: {code: string; message: string} | null;
-  rawPartial: string | null;
 }
