@@ -2,15 +2,9 @@
 
 Backend for Genesis, a generative AI app builder. Firebase Cloud Functions (gen 2, TypeScript) providing HighLevel OAuth, a whitelisted HL REST proxy, an SSE-streaming generation orchestrator, project CRUD, and content-addressed file snapshots in Firestore.
 
-**`backend-implementation.md` is the authoritative spec** — read the relevant section before changing anything.
-
 ## Prerequisites
 
 - **Node 20** (required by `functions/package.json` engines)
-- **Java 11+** (required by the Firestore emulator)
-- A Firebase project — the default is `highlevel-assignment-20de2` (see `.firebaserc`)
-
-> **Important:** always use the locally pinned `firebase-tools` (via `npm run …` or `npx firebase …` from the repo root). The globally installed standalone Firebase CLI bundles Node 16 and cannot load `firebase-functions` v5.
 
 ## Install
 
@@ -54,31 +48,6 @@ Deployed functions: `api` (Express REST app), seven callables (`createUserProfil
 http://127.0.0.1:5001/highlevel-assignment-20de2/us-central1/api
 ```
 
-Routes: `/healthz`, `/users/*`, `/projects/*` (including nested `/files` and `/snapshots`), `/oauth/hl/*` (`POST /connect`, `POST /token`, `GET /status` — HighLevel OAuth; requires the secrets below).
-
-**Smoke test a callable:**
-
-1. Create a user via the Auth emulator REST API:
-
-   ```bash
-   curl -s -X POST \
-     'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-api-key' \
-     -H 'Content-Type: application/json' \
-     -d '{"email":"dev@example.com","password":"password123","returnSecureToken":true}'
-   ```
-
-   Grab the `idToken` from the response.
-
-2. Call the function with a callable-shaped body (`{"data": {...}}`):
-
-   ```bash
-   curl -s -X POST \
-     'http://127.0.0.1:5001/highlevel-assignment-20de2/us-central1/createProject' \
-     -H "Authorization: Bearer <idToken>" \
-     -H 'Content-Type: application/json' \
-     -d '{"data":{"name":"My app","description":"demo"}}'
-   ```
-
 ## Other commands
 
 From the repo root:
@@ -95,18 +64,6 @@ Inside `functions/`:
 npm run logs               # firebase functions:log
 ```
 
-## Tests
-
-Tests use vitest (spec §11):
-
-```bash
-cd functions
-npx vitest run             # all tests
-npx vitest run <file>      # a single file
-```
-
-Firestore rules tests require the Firestore emulator to be running. HighLevel calls hit a real sandbox account (no HL emulator exists); Anthropic calls use a real dev key.
-
 ## Secrets
 
 Runtime secrets are bound per-function with `defineSecret` (see `functions/src/config/secrets.ts`) — never put them in `functions:config` or source.
@@ -116,7 +73,7 @@ Runtime secrets are bound per-function with `defineSecret` (see `functions/src/c
 | `HL_CLIENT_ID` | HighLevel marketplace → your app → Settings → Client Keys | `api` (`/oauth/hl/*`) |
 | `HL_CLIENT_SECRET` | Same place as the client id | `api` (`/oauth/hl/*`) |
 | `TOKEN_ENC_KEY` | Generate: `openssl rand -base64 32` (32 random bytes, base64) | `api` — encrypts HL tokens at rest |
-| `ANTHROPIC_API_KEY` | Anthropic console (dev key) | `generate` (once built) |
+| `ANTHROPIC_API_KEY` | Anthropic console → API Keys → Create Key | `api` (generation orchestrator — `POST /generate`) |
 
 ### Local (emulator)
 
@@ -127,6 +84,7 @@ The emulator reads secrets from `functions/.secret.local` and plain env vars fro
 HL_CLIENT_ID=<your marketplace app client id>
 HL_CLIENT_SECRET=<your marketplace app client secret>
 TOKEN_ENC_KEY=<output of: openssl rand -base64 32>
+ANTHROPIC_API_KEY=<your Anthropic API key>
 ```
 
 ```bash
@@ -186,7 +144,7 @@ This is where `HL_CLIENT_ID` / `HL_CLIENT_SECRET` come from.
 
 ### 3. Configure secrets and env
 
-- Set the three production secrets (see the [Secrets](#secrets) section): `HL_CLIENT_ID`, `HL_CLIENT_SECRET`, `TOKEN_ENC_KEY`.
+- Set the four production secrets (see the [Secrets](#secrets) section): `HL_CLIENT_ID`, `HL_CLIENT_SECRET`, `TOKEN_ENC_KEY`, `ANTHROPIC_API_KEY`.
 - Create `functions/.env` (must be inside `functions/`, not the repo root):
 
   ```bash
@@ -209,17 +167,6 @@ npm run deploy:firestore                          # rules + indexes first
 npx firebase deploy --only functions,hosting      # functions (lint+build predeploy) + site
 ```
 
-### 6. First-deploy errors you should expect (both are normal)
-
-- **"Failed to verify the project has the correct IAM bindings"** — the CLI couldn't grant roles to freshly created service agents. If you own the project, wait 2–3 minutes and retry; if it persists, grant manually in [IAM](https://console.cloud.google.com/iam-admin/iam): `service-<project-number>@gcp-sa-pubsub.iam.gserviceaccount.com` → *Service Account Token Creator*; `<project-number>-compute@developer.gserviceaccount.com` → *Cloud Run Invoker* + *Eventarc Event Receiver*.
-- **`onProjectCreated` fails with "Permission denied while using the Eventarc Service Agent"** — first-time Eventarc setup hasn't propagated yet. Wait a few minutes, then:
-
-  ```bash
-  npx firebase deploy --only functions:onProjectCreated
-  ```
-
-- The CLI also asks once about a **container image cleanup policy** — accept (e.g. 1 day); it just prunes old build images.
-
 ### 7. Verify
 
 ```bash
@@ -230,5 +177,5 @@ Open the hosting URL (e.g. `https://genesis-crm-app.web.app`), sign up, and run 
 
 ## Notes & gotchas
 
-- `generate` and `hlProxy` (once built) must be invoked at their direct Cloud Run URLs, never through Hosting rewrites — Hosting buffers responses and caps at 60 s, which silently kills SSE.
+- The `POST /generate` endpoint streams via SSE and must be invoked at the direct Cloud Run URL, never through Hosting rewrites — Hosting buffers responses and caps at 60 s, which silently kills SSE. The function is configured with 1 GiB memory and 540 s timeout.
 - Emulator quirk: descending scans on document ID are unsupported — order by `createdAt` instead of `orderBy(FieldPath.documentId(), "desc")`.
