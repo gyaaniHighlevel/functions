@@ -1,0 +1,14 @@
+{
+  "name": "genesis-backend",
+  "private": true,
+  "scripts": {
+    "emulators": "firebase emulators:start",
+    "build": "npm --prefix functions run build",
+    "lint": "npm --prefix functions run lint",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:firestore": "firebase deploy --only firestore:rules,firestore:indexes"
+  },
+  "devDependencies": {
+    "firebase-tools": "^14.11.1"
+  }
+}
