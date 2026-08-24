@@ -7,6 +7,7 @@ import {oauthRoutes} from "./routes/oauth.routes";
 import {projectRoutes} from "./routes/project.routes";
 import {proxyRoutes} from "./routes/proxy.routes";
 import {userRoutes} from "./routes/user.routes";
+import {generationRoutes} from "./routes/generation.routes";
 
 export const app = express();
 
@@ -23,6 +24,7 @@ app.use("/oauth/hl", requireAuth, oauthRoutes);
 app.use("/hl", requireAuth, proxyRoutes);
 app.use("/users", requireAuth, userRoutes);
 app.use("/projects", requireAuth, projectRoutes);
+app.use("/generate", requireAuth, generationRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({code: "NOT_FOUND", message: "Route not found."});
